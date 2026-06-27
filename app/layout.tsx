@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
+import { ThemeProvider } from '@/components/ThemeProvider'
 import './globals.css'
 
 const _geist = Geist({ subsets: ["latin"] });
@@ -29,15 +30,27 @@ export const metadata: Metadata = {
   },
 }
 
+const themeScript = `
+  try {
+    var theme = localStorage.getItem('fruit-ripeness-theme');
+    if (theme === 'dark') document.documentElement.classList.add('dark');
+  } catch (e) {}
+`
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className="bg-background">
-      <body className="font-sans antialiased">
-        {children}
+    <html lang="en" className="bg-background" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
+      <body className="font-sans antialiased transition-colors duration-300">
+        <ThemeProvider>
+          {children}
+        </ThemeProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

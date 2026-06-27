@@ -14,7 +14,19 @@ import {
   Sparkles,
 } from "lucide-react"
 
+import { DetailedResults } from "@/components/detector/detailed-results"
+import { PredictionModeSelector } from "@/components/detector/prediction-mode-selector"
+import { QuickResults } from "@/components/detector/quick-results"
+import type { PredictionMode } from "@/components/detector/types"
+import { PredictionHistory } from "@/components/PredictionHistory"
+import { PredictionTips } from "@/components/PredictionTips"
+import { createThumbnail } from "@/lib/create-thumbnail"
+import {
+  addPredictionHistoryItem,
+  formatHistoryDateTime,
+} from "@/lib/prediction-history"
 import { loadPredictionModel, predictFromImage, type PredictionItem } from "@/lib/predict"
+import { getFruitEmoji } from "@/lib/ripeness-utils"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -26,13 +38,13 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
-import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 
 export function RipenessDetector() {
   const [modelState, setModelState] = useState<
     { status: "loading" } | { status: "ready" } | { status: "error"; message: string }
   >({ status: "loading" })
+  const [predictionMode, setPredictionMode] = useState<PredictionMode>("detailed")
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [predictions, setPredictions] = useState<PredictionItem[] | null>(null)
   const [topPrediction, setTopPrediction] = useState<PredictionItem | null>(null)
@@ -42,6 +54,7 @@ export function RipenessDetector() {
   const [isLowConfidence, setIsLowConfidence] = useState(false)
   const [predicting, setPredicting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const imageRef = useRef<HTMLImageElement>(null)
 
@@ -121,6 +134,21 @@ export function RipenessDetector() {
       setIsLowConfidence(result.isLowConfidence)
       setTopPrediction(result.topPrediction)
       setPredictions(result.predictions)
+
+      const thumbnail = await createThumbnail(img)
+      const now = new Date()
+      const { date, time } = formatHistoryDateTime(now)
+      const resolvedFruit = result.fruitName ?? ""
+      addPredictionHistoryItem({
+        thumbnail,
+        prediction: result.ripeness,
+        confidence: result.confidence,
+        mode: predictionMode,
+        date,
+        time,
+        fruitEmoji: getFruitEmoji(resolvedFruit),
+      })
+      setHistoryRefreshKey((key) => key + 1)
     } catch (err) {
       console.error(err)
       setError(err instanceof Error ? err.message : "Prediction failed.")
@@ -143,22 +171,26 @@ export function RipenessDetector() {
     setError(null)
     resetFileInput()
   }
-  const displayFruit = fruitName ??""
+
+  const displayFruit = fruitName ?? ""
   const displayRipeness = ripeness ?? "Unknown"
-  const fruitEmoji = (() => {
-    const key = displayFruit.toLowerCase()
-    if (key.includes("banana")) return "🍌"
-    if (key.includes("apple")) return "🍎"
-    if (key.includes("mango")) return "🥭"
-    if (key.includes("orange")) return "🍊"
-    if (key.includes("grape")) return "🍇"
-    if (key.includes("pineapple")) return "🍍"
-    return ""
-  })()
+  const fruitEmoji = getFruitEmoji(displayFruit)
+
+  const resultsDescription =
+    predictionMode === "detailed"
+      ? "Detected fruit type, ripeness stage, and confidence by class."
+      : "Your quick ripeness prediction result."
+
+  const emptyResultsMessage =
+    predictionMode === "detailed"
+      ? "Run prediction to see confidence scores for each class."
+      : "Run prediction to see your quick ripeness result."
+
+  const hasPrediction = Boolean(topPrediction)
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 rounded-3xl bg-gradient-to-br from-emerald-50 via-white to-amber-50 p-4 sm:p-6">
-      <Card className="overflow-hidden border-emerald-100/80 shadow-lg">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 rounded-3xl bg-gradient-to-br from-emerald-50 via-white to-amber-50 p-4 transition-colors duration-300 sm:p-6 dark:from-slate-900 dark:via-slate-900 dark:to-slate-900">
+      <Card className="overflow-hidden border-emerald-100/80 shadow-lg transition-colors duration-300 dark:border-slate-700 dark:bg-slate-800">
         <CardHeader>
           <CardTitle className="text-xl sm:text-2xl">Fruit Ripeness Detector</CardTitle>
           <CardDescription>
@@ -183,6 +215,8 @@ export function RipenessDetector() {
             </div>
           )}
 
+          <PredictionModeSelector value={predictionMode} onChange={setPredictionMode} />
+
           <div className="flex flex-col gap-2">
             <Label htmlFor="fruit-image">Upload</Label>
             <input
@@ -197,7 +231,7 @@ export function RipenessDetector() {
 
           <div
             className={cn(
-              "relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed bg-muted/30 transition-all duration-300",
+              "relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed bg-muted/30 transition-all duration-300 dark:bg-slate-900/50",
               previewUrl && "border-solid",
             )}
           >
@@ -255,12 +289,12 @@ export function RipenessDetector() {
         </CardFooter>
       </Card>
 
-      <Card className="shadow-lg">
+      <Card className="shadow-lg transition-colors duration-300 dark:border-slate-700 dark:bg-slate-800">
         <CardHeader>
           <CardTitle>Results</CardTitle>
-          <CardDescription>Detected fruit type, ripeness stage, and confidence by class.</CardDescription>
+          <CardDescription>{resultsDescription}</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           {modelState.status === "loading" && (
             <div className="space-y-3">
               <Skeleton className="h-4 w-full" />
@@ -270,50 +304,34 @@ export function RipenessDetector() {
           )}
 
           {modelState.status === "ready" && !predictions && !predicting && (
-            <p className="text-sm text-muted-foreground">
-              Run prediction to see confidence scores for each class.
-            </p>
+            <p className="text-sm text-muted-foreground">{emptyResultsMessage}</p>
           )}
 
-          {topPrediction && (
-            <div className="mb-4 rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 to-amber-50 p-4">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Top prediction</p>
-              <p className="mt-1 text-2xl font-bold text-emerald-700">
-                {fruitEmoji} {displayFruit}
-              </p>
-              <p className="mt-1 text-lg font-medium">{displayRipeness}</p>
-              {isLowConfidence && (
-                <p className="mt-1 text-sm font-medium text-amber-700">Low confidence prediction</p>
-              )}
-              <p className="mt-1 text-sm text-muted-foreground">
-                Confidence:{" "}
-                <span className="font-semibold text-emerald-700">
-                  {((confidence ?? topPrediction.probability) * 100).toFixed(1)}%
-                </span>
-              </p>
-            </div>
+          {topPrediction && predictions && predictionMode === "detailed" && (
+            <DetailedResults
+              topPrediction={topPrediction}
+              predictions={predictions}
+              fruitEmoji={fruitEmoji}
+              displayFruit={displayFruit}
+              displayRipeness={displayRipeness}
+              confidence={confidence}
+              isLowConfidence={isLowConfidence}
+            />
           )}
 
-          {predictions && (
-            <ul className="space-y-4">
-              {predictions.map((row) => {
-                const pct = row.probability * 100
-                return (
-                  <li key={row.rawLabel} className="rounded-xl border bg-background/70 p-3 transition-colors hover:bg-muted/40">
-                    <div className="mb-1 flex justify-between text-sm">
-                      <span className="font-medium">
-                        {row.fruitName ? `${row.fruitName} - ${row.ripeness}` : row.ripeness}
-                      </span>
-                      <span className="tabular-nums text-muted-foreground">{pct.toFixed(1)}%</span>
-                    </div>
-                    <Progress value={pct} />
-                  </li>
-                )
-              })}
-            </ul>
+          {topPrediction && predictionMode === "quick" && (
+            <QuickResults
+              displayRipeness={displayRipeness}
+              confidence={confidence}
+              probability={topPrediction.probability}
+            />
           )}
+
+          {hasPrediction && <PredictionTips ripeness={displayRipeness} />}
         </CardContent>
       </Card>
+
+      <PredictionHistory refreshKey={historyRefreshKey} />
     </div>
   )
 }
